@@ -525,4 +525,28 @@ Google Chrome                  Google.Chrome               131.0.6  winget
         assert_eq!(packages[0].source, "winget");
         assert!(packages[0].available_version.is_empty());
     }
+
+    #[test]
+    fn parse_show_output_with_icon() {
+        let backend = CliBackend::new();
+        let output = "\
+Found Visual Studio Code [Microsoft.VisualStudioCode]
+Version: 1.96.0
+Publisher: Microsoft Corporation
+Description: A powerful code editor
+Homepage: https://code.visualstudio.com/
+Icon: https://code.visualstudio.com/assets/images/code-stable.png
+License: MIT
+Source: winget
+";
+        let detail = backend.parse_show_output(output);
+        assert_eq!(detail.id, "Microsoft.VisualStudioCode");
+        assert_eq!(detail.name, "Visual Studio Code");
+        assert_eq!(detail.version, "1.96.0");
+        assert_eq!(detail.publisher, "Microsoft Corporation");
+        assert_eq!(detail.description, "A powerful code editor");
+        assert_eq!(detail.homepage, "https://code.visualstudio.com/");
+        assert_eq!(detail.icon, "https://code.visualstudio.com/assets/images/code-stable.png");
+        assert_eq!(detail.license, "MIT");
+    }
 }
