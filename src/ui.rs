@@ -8,6 +8,7 @@ use ratatui::{
         ScrollbarOrientation, ScrollbarState, Table, TableState, Wrap,
     },
 };
+use std::io::Write;
 
 use crate::app::{App, AppMode, ConfirmDialog, InputMode};
 
@@ -290,7 +291,34 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD);
 
-        let mut lines = vec![
+        let mut lines = vec![];
+
+        // Render icon if available using sixel
+        if !detail.icon.is_empty() {
+            if let Some(icon_data) = app.icon_cache.get(&detail.icon) {
+                // Render sixel directly to terminal at correct position
+                if let Ok(()) = render_sixel_at_position(icon_data, area.x + 2, area.y + 2, 48) {
+                    // Add blank lines to make space for the icon (approx 8 lines for 48px icon)
+                    for _ in 0..8 {
+                        lines.push(Line::raw(""));
+                    }
+                } else {
+                    lines.push(Line::from(vec![
+                        Span::styled("  📷 Icon   ", label_style),
+                        Span::styled("[error]", Style::default().fg(Color::Red)),
+                    ]));
+                    lines.push(Line::raw(""));
+                }
+            } else {
+                lines.push(Line::from(vec![
+                    Span::styled("  📷 Icon   ", label_style),
+                    Span::styled("[loading...]", Style::default().fg(Color::Gray)),
+                ]));
+                lines.push(Line::raw(""));
+            }
+        }
+
+        lines.extend(vec![
             Line::from(vec![
                 Span::styled("  Name      ", label_style),
                 Span::raw(&detail.name),
@@ -311,7 +339,7 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled("  Source    ", label_style),
                 Span::raw(&detail.source),
             ]),
-        ];
+        ]);
 
         if !detail.license.is_empty() {
             lines.push(Line::from(vec![
@@ -643,4 +671,43 @@ fn truncate(s: &str, max: usize) -> String {
         let truncated: String = s.chars().take(max - 1).collect();
         format!("{truncated}…")
     }
+}
+
+/// Render sixel image at a specific terminal position
+fn render_sixel_at_position(image_data: &[u8], x: u16, y: u16, max_size: u32) -> Result<(), String> {
+    use image::ImageReader;
+    use std::io::{self, Cursor};
+    use icy_sixel::SixelImage;
+    use crossterm::{cursor, ExecutableCommand};
+
+    // Load and resize image
+    let img = ImageReader::new(Cursor::new(image_data))
+        .with_guessed_format()
+        .map_err(|e| format!("Failed to detect image format: {}", e))?
+        .decode()
+        .map_err(|e| format!("Failed to decode image: {}", e))?;
+
+    let img = img.resize(max_size, max_size, image::imageops::FilterType::Lanczos3);
+    let rgba = img.to_rgba8();
+
+    // Encode to sixel
+    let sixel_image = SixelImage::from_rgba(
+        rgba.as_raw().to_vec(),
+        rgba.width() as usize,
+        rgba.height() as usize,
+    );
+    
+    let sixel_string = sixel_image.encode()
+        .map_err(|e| format!("Failed to encode sixel: {}", e))?;
+
+    // Position cursor and write sixel data
+    let mut stdout = io::stdout();
+    stdout.execute(cursor::MoveTo(x, y))
+        .map_err(|e| format!("Failed to move cursor: {}", e))?;
+    stdout.write_all(sixel_string.as_bytes())
+        .map_err(|e| format!("Failed to write sixel: {}", e))?;
+    stdout.flush()
+        .map_err(|e| format!("Failed to flush: {}", e))?;
+
+    Ok(())
 }

@@ -23,6 +23,7 @@ pub struct LayoutRegions {
 pub enum AppMessage {
     PackagesLoaded { generation: u64, packages: Vec<Package> },
     DetailLoaded { generation: u64, detail: PackageDetail },
+    IconLoaded { url: String, data: Vec<u8> },
     OperationComplete(OpResult),
     Error(String),
 }
@@ -90,6 +91,8 @@ pub struct App {
     pub detail_generation: u64,
     /// Cache of package details to avoid repeated winget show calls
     pub detail_cache: HashMap<String, PackageDetail>,
+    /// Cache of downloaded icon images (URL -> image bytes)
+    pub icon_cache: HashMap<String, Vec<u8>>,
     pub backend: Arc<dyn WingetBackend>,
     pub message_tx: tokio::sync::mpsc::UnboundedSender<AppMessage>,
     pub message_rx: tokio::sync::mpsc::UnboundedReceiver<AppMessage>,
@@ -118,6 +121,7 @@ impl App {
             view_generation: 0,
             detail_generation: 0,
             detail_cache: HashMap::new(),
+            icon_cache: HashMap::new(),
             backend,
             message_tx,
             message_rx,
@@ -239,6 +243,28 @@ impl App {
         });
     }
 
+    pub fn load_icon(&mut self, url: &str) {
+        // Don't download if already cached
+        if self.icon_cache.contains_key(url) {
+            return;
+        }
+
+        let tx = self.message_tx.clone();
+        let url = url.to_string();
+
+        tokio::spawn(async move {
+            match download_icon(&url).await {
+                Ok(data) => {
+                    let _ = tx.send(AppMessage::IconLoaded { url, data });
+                }
+                Err(e) => {
+                    // Silently fail for icons - don't want to spam error messages
+                    eprintln!("Failed to download icon {}: {}", url, e);
+                }
+            }
+        });
+    }
+
     pub fn execute_operation(&self, op: Operation) {
         let backend = self.backend.clone();
         let tx = self.message_tx.clone();
@@ -307,6 +333,7 @@ impl App {
                             description: detail.description.clone(),
                             homepage: detail.homepage.clone(),
                             license: detail.license.clone(),
+                            icon: if detail.icon.is_empty() { existing.icon.clone() } else { detail.icon.clone() },
                         }
                     } else {
                         detail
@@ -315,8 +342,15 @@ impl App {
                     if !merged.id.is_empty() {
                         self.detail_cache.insert(merged.id.clone(), merged.clone());
                     }
+                    // Load icon if URL is present
+                    if !merged.icon.is_empty() {
+                        self.load_icon(&merged.icon);
+                    }
                     self.detail = Some(merged);
                     self.detail_loading = false;
+                }
+                AppMessage::IconLoaded { url, data } => {
+                    self.icon_cache.insert(url, data);
                 }
                 AppMessage::OperationComplete(result) => {
                     // Invalidate cache for the affected package
@@ -346,4 +380,11 @@ impl App {
             }
         }
     }
+}
+
+/// Download an icon from a URL
+async fn download_icon(url: &str) -> anyhow::Result<Vec<u8>> {
+    let response = reqwest::get(url).await?;
+    let bytes = response.bytes().await?;
+    Ok(bytes.to_vec())
 }

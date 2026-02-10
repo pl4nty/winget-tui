@@ -134,6 +134,7 @@ impl CliBackend {
             "publisher url" | "herausgeber-url" => "publisher_url",
             "license" | "lizenz" | "licence" | "licencia" | "licença" | "licenza" => "license",
             "source" | "quelle" | "origen" | "fonte" | "origine" => "source",
+            "icon" | "icône" | "icono" | "ícone" | "icona" => "icon",
             _ => "",
         }
     }
@@ -266,6 +267,7 @@ impl CliBackend {
                         }
                         "license" => detail.license = value,
                         "source" => detail.source = value,
+                        "icon" => detail.icon = value,
                         _ => {}
                     }
                 }
