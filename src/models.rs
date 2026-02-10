@@ -66,6 +66,7 @@ pub struct PackageDetail {
     pub homepage: String,
     pub license: String,
     pub source: String,
+    pub icon: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

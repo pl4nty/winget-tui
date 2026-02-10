@@ -14,6 +14,7 @@ A terminal user interface for [Windows Package Manager (winget)](https://github.
 - **Upgrade Management** — See available updates at a glance
 - **Source Filtering** — Filter by source (winget, msstore, or all)
 - **Package Details** — View publisher, description, license, homepage
+- **Icon Display** — Sixel rendering of app icons in package details (captured from winget output)
 - **Keyboard-Driven** — Vim-style navigation, no mouse needed
 - **Non-Blocking** — Install/uninstall/upgrade run in the background
 - **Single Binary** — No runtime dependencies beyond winget itself
@@ -23,6 +24,7 @@ A terminal user interface for [Windows Package Manager (winget)](https://github.
 - Windows 10/11
 - [winget](https://github.com/microsoft/winget-cli) 1.4+ installed
 - A terminal with Unicode support (Windows Terminal recommended)
+- Optional: Terminal with Sixel graphics support for icon display (e.g., WezTerm, mintty, or mlterm)
 
 ## Installation
 

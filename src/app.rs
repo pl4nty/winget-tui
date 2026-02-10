@@ -298,15 +298,19 @@ impl App {
                     }
                     // Merge: if winget show returned empty fields, keep pre-populated data
                     let merged = if let Some(existing) = &self.detail {
+                        let merge_field = |new: String, old: &str| {
+                            if new.is_empty() { old.to_string() } else { new }
+                        };
                         PackageDetail {
-                            id: if detail.id.is_empty() { existing.id.clone() } else { detail.id.clone() },
-                            name: if detail.name.is_empty() { existing.name.clone() } else { detail.name.clone() },
-                            version: if detail.version.is_empty() { existing.version.clone() } else { detail.version.clone() },
-                            source: if detail.source.is_empty() { existing.source.clone() } else { detail.source.clone() },
-                            publisher: detail.publisher.clone(),
-                            description: detail.description.clone(),
-                            homepage: detail.homepage.clone(),
-                            license: detail.license.clone(),
+                            id: merge_field(detail.id, &existing.id),
+                            name: merge_field(detail.name, &existing.name),
+                            version: merge_field(detail.version, &existing.version),
+                            source: merge_field(detail.source, &existing.source),
+                            publisher: detail.publisher,
+                            description: detail.description,
+                            homepage: detail.homepage,
+                            license: detail.license,
+                            icon: merge_field(detail.icon, &existing.icon),
                         }
                     } else {
                         detail

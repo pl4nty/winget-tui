@@ -11,6 +11,10 @@ use ratatui::{
 
 use crate::app::{App, AppMode, ConfirmDialog, InputMode};
 
+// Constants for icon rendering
+const ICON_OFFSET: u16 = 2;
+const ICON_BLANK_LINES: usize = 8;
+
 pub fn draw(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -290,7 +294,28 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD);
 
-        let mut lines = vec![
+        let mut lines = vec![];
+
+        // Render icon if available using sixel
+        // The icon field contains base64-encoded sixel data
+        if !detail.icon.is_empty() {
+            // Decode base64 sixel data and display it
+            if let Ok(()) = render_sixel_from_base64(&detail.icon, area.x + ICON_OFFSET, area.y + ICON_OFFSET) {
+                // Add blank lines to make space for the icon
+                for _ in 0..ICON_BLANK_LINES {
+                    lines.push(Line::raw(""));
+                }
+            } else {
+                // Show status if icon failed to render
+                lines.push(Line::from(vec![
+                    Span::styled("  📷 Icon   ", label_style),
+                    Span::styled("[error]", Style::default().fg(Color::Red)),
+                ]));
+                lines.push(Line::raw(""));
+            }
+        }
+
+        lines.extend(vec![
             Line::from(vec![
                 Span::styled("  Name      ", label_style),
                 Span::raw(&detail.name),
@@ -311,7 +336,7 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled("  Source    ", label_style),
                 Span::raw(&detail.source),
             ]),
-        ];
+        ]);
 
         if !detail.license.is_empty() {
             lines.push(Line::from(vec![
@@ -643,4 +668,26 @@ fn truncate(s: &str, max: usize) -> String {
         let truncated: String = s.chars().take(max - 1).collect();
         format!("{truncated}…")
     }
+}
+
+/// Render sixel data from base64-encoded string at a specific terminal position
+fn render_sixel_from_base64(base64_data: &str, x: u16, y: u16) -> Result<(), String> {
+    use base64::{Engine as _, engine::general_purpose};
+    use std::io::{self, Write};
+    use crossterm::{cursor, ExecutableCommand};
+
+    // Decode base64 to get raw sixel bytes
+    let sixel_bytes = general_purpose::STANDARD.decode(base64_data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+
+    // Position cursor and write sixel data directly
+    let mut stdout = io::stdout();
+    stdout.execute(cursor::MoveTo(x, y))
+        .map_err(|e| format!("Failed to move cursor: {}", e))?;
+    stdout.write_all(&sixel_bytes)
+        .map_err(|e| format!("Failed to write sixel: {}", e))?;
+    stdout.flush()
+        .map_err(|e| format!("Failed to flush: {}", e))?;
+
+    Ok(())
 }
