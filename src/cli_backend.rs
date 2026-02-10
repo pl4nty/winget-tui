@@ -311,7 +311,11 @@ impl CliBackend {
             for i in start..raw_output.len().saturating_sub(1) {
                 if raw_output[i] == esc && raw_output[i + 1] == 0x5C {
                     // Found end, extract the complete sixel sequence
-                    return Some(raw_output[start..=i+1].to_vec());
+                    // Use saturating_add to avoid overflow
+                    let end = i.saturating_add(2);
+                    if end <= raw_output.len() {
+                        return Some(raw_output[start..end].to_vec());
+                    }
                 }
             }
         }
