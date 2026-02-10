@@ -12,6 +12,11 @@ use std::io::Write;
 
 use crate::app::{App, AppMode, ConfirmDialog, InputMode};
 
+// Constants for icon rendering
+const ICON_OFFSET: u16 = 2;
+const ICON_MAX_SIZE: u32 = 48;
+const ICON_BLANK_LINES: usize = 8;
+
 pub fn draw(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -297,9 +302,11 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         if !detail.icon.is_empty() {
             if let Some(icon_data) = app.icon_cache.get(&detail.icon) {
                 // Render sixel directly to terminal at correct position
-                if let Ok(()) = render_sixel_at_position(icon_data, area.x + 2, area.y + 2, 48) {
-                    // Add blank lines to make space for the icon (approx 8 lines for 48px icon)
-                    for _ in 0..8 {
+                // Note: This bypasses ratatui's buffer and writes directly to terminal
+                // This is necessary because ratatui doesn't support sixel graphics natively
+                if let Ok(()) = render_sixel_at_position(icon_data, area.x + ICON_OFFSET, area.y + ICON_OFFSET, ICON_MAX_SIZE) {
+                    // Add blank lines to make space for the icon
+                    for _ in 0..ICON_BLANK_LINES {
                         lines.push(Line::raw(""));
                     }
                 } else {
