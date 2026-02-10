@@ -50,6 +50,18 @@ impl CliBackend {
         Ok(cleaned)
     }
 
+    /// Run winget and return raw output with sixel sequences preserved
+    async fn run_winget_raw(&self, args: &[&str]) -> Result<Vec<u8>> {
+        let output = Command::new("winget")
+            .args(args)
+            .output()
+            .await
+            .context("Failed to run winget. Is it installed?")?;
+
+        // Return raw bytes to preserve sixel escape sequences
+        Ok(output.stdout)
+    }
+
     fn parse_packages_from_table(&self, output: &str) -> Vec<Package> {
         // winget table output has a header line followed by a separator (all dashes)
         // then data rows. Column positions are determined by the header.
@@ -134,7 +146,6 @@ impl CliBackend {
             "publisher url" | "herausgeber-url" => "publisher_url",
             "license" | "lizenz" | "licence" | "licencia" | "licença" | "licenza" => "license",
             "source" | "quelle" | "origen" | "fonte" | "origine" => "source",
-            "icon" | "icône" | "icono" | "ícone" | "icona" => "icon",
             _ => "",
         }
     }
@@ -267,7 +278,6 @@ impl CliBackend {
                         }
                         "license" => detail.license = value,
                         "source" => detail.source = value,
-                        "icon" => detail.icon = value,
                         _ => {}
                     }
                 }
@@ -276,6 +286,37 @@ impl CliBackend {
         }
 
         detail
+    }
+
+    /// Extract sixel image data from raw winget output
+    /// Sixel sequences start with ESC P q and end with ESC \
+    fn extract_sixel_data(&self, raw_output: &[u8]) -> Option<Vec<u8>> {
+        // Look for sixel sequence: ESC P q ... ESC \
+        // ESC = 0x1B, P = 0x50, q = 0x71, \ = 0x5C
+        let esc = 0x1B;
+        let mut sixel_start = None;
+        
+        for i in 0..raw_output.len().saturating_sub(2) {
+            if raw_output[i] == esc && raw_output[i + 1] == 0x50 {
+                // Found ESC P, check if followed by 'q'
+                if i + 2 < raw_output.len() && raw_output[i + 2] == 0x71 {
+                    sixel_start = Some(i);
+                    break;
+                }
+            }
+        }
+        
+        if let Some(start) = sixel_start {
+            // Find the end: ESC \
+            for i in start..raw_output.len().saturating_sub(1) {
+                if raw_output[i] == esc && raw_output[i + 1] == 0x5C {
+                    // Found end, extract the complete sixel sequence
+                    return Some(raw_output[start..=i+1].to_vec());
+                }
+            }
+        }
+        
+        None
     }
 
     #[allow(dead_code)]
@@ -379,10 +420,25 @@ impl WingetBackend for CliBackend {
     }
 
     async fn show(&self, id: &str) -> Result<PackageDetail> {
-        let output = self
-            .run_winget(&["show", "--id", id, "--exact", "--accept-source-agreements"])
+        // Get raw output to preserve sixel sequences
+        let raw_output = self
+            .run_winget_raw(&["show", "--id", id, "--exact", "--accept-source-agreements"])
             .await?;
-        Ok(self.parse_show_output(&output))
+        
+        // Extract sixel data if present
+        let sixel_data = self.extract_sixel_data(&raw_output);
+        
+        // Parse text fields
+        let output = String::from_utf8_lossy(&raw_output).to_string();
+        let mut detail = self.parse_show_output(&output);
+        
+        // Store sixel data as base64 string for easy storage/transport
+        if let Some(sixel_bytes) = sixel_data {
+            use base64::{Engine as _, engine::general_purpose};
+            detail.icon = general_purpose::STANDARD.encode(&sixel_bytes);
+        }
+        
+        Ok(detail)
     }
 
     async fn install(&self, id: &str, version: Option<&str>) -> Result<String> {
@@ -524,29 +580,5 @@ Google Chrome                  Google.Chrome               131.0.6  winget
         assert_eq!(packages[0].id, "Google.Chrome");
         assert_eq!(packages[0].source, "winget");
         assert!(packages[0].available_version.is_empty());
-    }
-
-    #[test]
-    fn parse_show_output_with_icon() {
-        let backend = CliBackend::new();
-        let output = "\
-Found Visual Studio Code [Microsoft.VisualStudioCode]
-Version: 1.96.0
-Publisher: Microsoft Corporation
-Description: A powerful code editor
-Homepage: https://code.visualstudio.com/
-Icon: https://code.visualstudio.com/assets/images/code-stable.png
-License: MIT
-Source: winget
-";
-        let detail = backend.parse_show_output(output);
-        assert_eq!(detail.id, "Microsoft.VisualStudioCode");
-        assert_eq!(detail.name, "Visual Studio Code");
-        assert_eq!(detail.version, "1.96.0");
-        assert_eq!(detail.publisher, "Microsoft Corporation");
-        assert_eq!(detail.description, "A powerful code editor");
-        assert_eq!(detail.homepage, "https://code.visualstudio.com/");
-        assert_eq!(detail.icon, "https://code.visualstudio.com/assets/images/code-stable.png");
-        assert_eq!(detail.license, "MIT");
     }
 }

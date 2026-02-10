@@ -8,13 +8,11 @@ use ratatui::{
         ScrollbarOrientation, ScrollbarState, Table, TableState, Wrap,
     },
 };
-use std::io::Write;
 
 use crate::app::{App, AppMode, ConfirmDialog, InputMode};
 
 // Constants for icon rendering
 const ICON_OFFSET: u16 = 2;
-const ICON_MAX_SIZE: u32 = 48;
 const ICON_BLANK_LINES: usize = 8;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
@@ -299,27 +297,19 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         let mut lines = vec![];
 
         // Render icon if available using sixel
+        // The icon field contains base64-encoded sixel data
         if !detail.icon.is_empty() {
-            if let Some(icon_data) = app.icon_cache.get(&detail.icon) {
-                // Render sixel directly to terminal at correct position
-                // Note: This bypasses ratatui's buffer and writes directly to terminal
-                // This is necessary because ratatui doesn't support sixel graphics natively
-                if let Ok(()) = render_sixel_at_position(icon_data, area.x + ICON_OFFSET, area.y + ICON_OFFSET, ICON_MAX_SIZE) {
-                    // Add blank lines to make space for the icon
-                    for _ in 0..ICON_BLANK_LINES {
-                        lines.push(Line::raw(""));
-                    }
-                } else {
-                    lines.push(Line::from(vec![
-                        Span::styled("  📷 Icon   ", label_style),
-                        Span::styled("[error]", Style::default().fg(Color::Red)),
-                    ]));
+            // Decode base64 sixel data and display it
+            if let Ok(()) = render_sixel_from_base64(&detail.icon, area.x + ICON_OFFSET, area.y + ICON_OFFSET) {
+                // Add blank lines to make space for the icon
+                for _ in 0..ICON_BLANK_LINES {
                     lines.push(Line::raw(""));
                 }
             } else {
+                // Show status if icon failed to render
                 lines.push(Line::from(vec![
                     Span::styled("  📷 Icon   ", label_style),
-                    Span::styled("[loading...]", Style::default().fg(Color::Gray)),
+                    Span::styled("[error]", Style::default().fg(Color::Red)),
                 ]));
                 lines.push(Line::raw(""));
             }
@@ -680,38 +670,21 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-/// Render sixel image at a specific terminal position
-fn render_sixel_at_position(image_data: &[u8], x: u16, y: u16, max_size: u32) -> Result<(), String> {
-    use image::ImageReader;
-    use std::io::{self, Cursor};
-    use icy_sixel::SixelImage;
+/// Render sixel data from base64-encoded string at a specific terminal position
+fn render_sixel_from_base64(base64_data: &str, x: u16, y: u16) -> Result<(), String> {
+    use base64::{Engine as _, engine::general_purpose};
+    use std::io::{self, Write};
     use crossterm::{cursor, ExecutableCommand};
 
-    // Load and resize image
-    let img = ImageReader::new(Cursor::new(image_data))
-        .with_guessed_format()
-        .map_err(|e| format!("Failed to detect image format: {}", e))?
-        .decode()
-        .map_err(|e| format!("Failed to decode image: {}", e))?;
+    // Decode base64 to get raw sixel bytes
+    let sixel_bytes = general_purpose::STANDARD.decode(base64_data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
 
-    let img = img.resize(max_size, max_size, image::imageops::FilterType::Lanczos3);
-    let rgba = img.to_rgba8();
-
-    // Encode to sixel
-    let sixel_image = SixelImage::from_rgba(
-        rgba.as_raw().to_vec(),
-        rgba.width() as usize,
-        rgba.height() as usize,
-    );
-    
-    let sixel_string = sixel_image.encode()
-        .map_err(|e| format!("Failed to encode sixel: {}", e))?;
-
-    // Position cursor and write sixel data
+    // Position cursor and write sixel data directly
     let mut stdout = io::stdout();
     stdout.execute(cursor::MoveTo(x, y))
         .map_err(|e| format!("Failed to move cursor: {}", e))?;
-    stdout.write_all(sixel_string.as_bytes())
+    stdout.write_all(&sixel_bytes)
         .map_err(|e| format!("Failed to write sixel: {}", e))?;
     stdout.flush()
         .map_err(|e| format!("Failed to flush: {}", e))?;
